@@ -9,3 +9,4 @@ plotly==5.13.0
 imageio==2.31.1
 Pillow==9.4.0
 kaleido==0.2.1
+altair==4.2.2
