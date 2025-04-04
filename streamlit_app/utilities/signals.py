@@ -96,6 +96,33 @@ def inventory_strategy(df, inventory_col, k1, k2, threshold):
     combined = mean_revert_signal.where(abs(deviation) > threshold, momentum_signal)
     return combined.shift(1)
 
+# === 11. Follow-the-Flow (COT Momentum) ===
+def follow_the_flow(df, mm_col, m, n):
+    ma_m = df[mm_col].rolling(window=m).mean()
+    ma_n = df[mm_col].rolling(window=n).mean()
+    mt = ma_m - ma_n
+    signal = sign_signal(mt)
+    return signal.shift(1)
+
+
+# === 12. Fade-the-Crowded-Trade (COT Sentiment) ===
+def fade_crowded_trade(df, mm_col, epsilon, n):
+    rolling_max = df[mm_col].rolling(window=n).max()
+    rolling_min = df[mm_col].rolling(window=n).min()
+    
+    SI = (df[mm_col] - rolling_min) / (rolling_max - rolling_min)
+
+    def fade_signal(si_val):
+        if si_val <= epsilon:
+            return 1
+        elif si_val >= 1 - epsilon:
+            return -1
+        else:
+            return 0
+
+    signal = SI.apply(fade_signal)
+    return signal.shift(1)
+
 
 # Dispatcher
 strategy_functions = {
@@ -109,6 +136,8 @@ strategy_functions = {
     "Carry of Carry": carry_of_carry,
     "Congestion": congestion_strategy,
     "Inventory": inventory_strategy,
+    "Follow-the-Flow": follow_the_flow,
+    "Fade-the-Crowded-Trade": fade_crowded_trade,
 }
 
 def get_signal(name, df, **kwargs):
