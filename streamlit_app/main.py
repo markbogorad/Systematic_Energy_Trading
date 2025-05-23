@@ -47,6 +47,8 @@ def get_cached_rolling(df, transaction_cost):
         price_col="px_last"
     )
 
+# (All your existing imports and setup remain unchanged...)
+
 # === PAGE SETUP ===
 st.set_page_config(page_title="Commodity Strategy Visualizer", layout="wide")
 st.title("Commodity Strategy Visualizer")
@@ -57,7 +59,7 @@ right_sidebar.header("Filter Futures")
 
 internal_tags, _ = get_cached_filter_options(DATA_PATH)
 internal_tags = sorted(internal_tags, key=lambda x: (x != "Catherine Rec", x))
-internal_tag = right_sidebar.selectbox("Internal Tag", internal_tags)
+internal_tag = right_sidebar.selectbox("Internal Tag", internal_tags, key="internal_tag_select")
 
 commodity_dict = get_cached_commodities(DATA_PATH, internal_tag)
 raw_df_all = commodity_dict.get("futures", pd.DataFrame())
@@ -78,7 +80,7 @@ if non_empty_tickers.empty:
 available = non_empty_tickers[["bbg_ticker", "description"]].dropna().drop_duplicates()
 available["display"] = available["bbg_ticker"] + " — " + available["description"].fillna("")
 
-selected_display = right_sidebar.selectbox("Select BBG Ticker", available["display"])
+selected_display = right_sidebar.selectbox("Select BBG Ticker", available["display"], key="ticker_select")
 selected_ticker = selected_display.split(" — ")[0]
 
 raw_df = raw_df_all[raw_df_all["bbg_ticker"] == selected_ticker].copy()
@@ -102,7 +104,7 @@ if not required_cols.issubset(df_cols):
 
 # === LEFT SIDEBAR: STRATEGY INPUT ===
 left_sidebar = st.sidebar.container()
-transaction_cost = left_sidebar.number_input("Transaction Cost", value=0.002, step=0.001)
+transaction_cost = left_sidebar.number_input("Transaction Cost", value=0.002, step=0.001, key="transaction_cost_input")
 
 # === Compute Rolling Futures ===
 try:
@@ -128,7 +130,7 @@ if df is not None and "Rolling Futures" in df.columns:
 # === Strategy Controls ===
 left_sidebar.markdown("---")
 core_strategies = [s for s in strategy_functions if s in ["Basic Momentum", "Value", "Carry"]]
-selected_strategies = left_sidebar.multiselect("Select Strategies", core_strategies, default=["Basic Momentum"])
+selected_strategies = left_sidebar.multiselect("Select Strategies", core_strategies, default=["Basic Momentum"], key="strategy_select")
 left_sidebar.markdown("Strategy Parameters")
 
 params = {}
@@ -137,16 +139,16 @@ for strategy in selected_strategies:
     if strategy in ["Basic Momentum", "Value"]:
         params[strategy] = {
             "price_col": "Rolling Futures",
-            "window": left_sidebar.number_input(f"{strategy} - Window (Days)", value=20, min_value=1),
-            "threshold": left_sidebar.number_input(f"{strategy} - Threshold", value=0.01, step=0.01)
+            "window": left_sidebar.number_input(f"{strategy} - Window (Days)", value=20, min_value=1, key=f"{strategy}_window"),
+            "threshold": left_sidebar.number_input(f"{strategy} - Threshold", value=0.01, step=0.01, key=f"{strategy}_threshold")
         }
     elif strategy == "Carry":
         valid_tenors = [col for col in df.columns if col.endswith("m") and col[:-1].isdigit()]
         valid_tenors = sorted(valid_tenors, key=lambda x: int(x[:-1]))
         params[strategy] = {
-            "front_col": left_sidebar.selectbox("Carry Front Tenor", valid_tenors, index=0),
-            "back_col": left_sidebar.selectbox("Carry Back Tenor", valid_tenors, index=3),
-            "threshold": left_sidebar.number_input(f"{strategy} - Threshold", value=0.05, step=0.01)
+            "front_col": left_sidebar.selectbox("Carry Front Tenor", valid_tenors, index=0, key="carry_front"),
+            "back_col": left_sidebar.selectbox("Carry Back Tenor", valid_tenors, index=3, key="carry_back"),
+            "threshold": left_sidebar.number_input(f"{strategy} - Threshold", value=0.05, step=0.01, key="carry_threshold")
         }
         left_sidebar.caption("Default is front = 1m, back = 4m")
 
@@ -164,7 +166,8 @@ if df is not None:
             min_value=min_date,
             max_value=max_date,
             value=(min_date, max_date),
-            format="YYYY-MM-DD"
+            format="YYYY-MM-DD",
+            key=f"{strategy}_date_slider"
         )
 
         df_filtered = df[
