@@ -5,6 +5,7 @@ import pandas as pd
 import tempfile
 import requests
 
+
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
@@ -17,6 +18,17 @@ from streamlit_app.utilities.metrics import compute_strategy_metrics
 
 DB_ID = "1moztw7N-byWmYd1nJGuOZnHYWEZuYjFB"
 DB_PATH = "commodities.db"
+
+import os
+
+if os.path.exists(DB_PATH):
+    print(f"[DEBUG] DB exists: {DB_PATH}")
+    print(f"[DEBUG] File size: {os.path.getsize(DB_PATH)} bytes")
+    with open(DB_PATH, "rb") as f:
+        header = f.read(100)
+        print(f"[DEBUG] Header: {header[:20]}")
+else:
+    print("[DEBUG] DB file does not exist")
 
 if not os.path.exists(DB_PATH):
     print("Downloading commodities.db...")
