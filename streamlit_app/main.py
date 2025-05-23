@@ -5,26 +5,23 @@ import pandas as pd
 import tempfile
 import requests
 
-DB_URL = "https://drive.google.com/uc?export=download&id=1moztw7N-byWmYd1nJGuOZnHYWEZuYjFB"
-DB_PATH = "commodities.db"
-
-if not os.path.exists(DB_PATH):
-    with open(DB_PATH, "wb") as f:
-        print("Downloading DB...")
-        response = requests.get(DB_URL)
-        f.write(response.content)
-        print("Download complete.")
-
-
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
 from streamlit_app.utilities.signals import get_signal, apply_strategy_returns, strategy_functions
 from streamlit_app.utilities.data_loader import load_filtered_commodities, get_filter_options
-from streamlit_app.utilities.visualization import plot_rolling_futures, generate_futures_gif, visualize_signal
+from streamlit_app.utilities.visualization import plot_rolling_futures, generate_futures_gif, visualize_signal, download_file_from_google_drive
 from streamlit_app.utilities.rolling_futures import compute_rolling_futures
 from streamlit_app.utilities.metrics import compute_strategy_metrics
+
+DB_ID = "1moztw7N-byWmYd1nJGuOZnHYWEZuYjFB"
+DB_PATH = "commodities.db"
+
+if not os.path.exists(DB_PATH):
+    print("Downloading commodities.db...")
+    download_file_from_google_drive(DB_ID, DB_PATH)
+    print("Download complete.")
 
 # === CACHING UTILITIES ===
 @st.cache_data
