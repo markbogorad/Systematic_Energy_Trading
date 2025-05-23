@@ -3,6 +3,18 @@ import sys
 import streamlit as st
 import pandas as pd
 import tempfile
+import requests
+
+DB_URL = "https://drive.google.com/file/d/1moztw7N-byWmYd1nJGuOZnHYWEZuYjFB/view?usp=share_link"
+DB_PATH = "commodities.db"
+
+if not os.path.exists(DB_PATH):
+    with open(DB_PATH, "wb") as f:
+        print("Downloading DB...")
+        response = requests.get(DB_URL)
+        f.write(response.content)
+        print("Download complete.")
+
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
@@ -105,9 +117,20 @@ except Exception as e:
     st.error(f"Rolling futures computation failed: {e}")
     df = None
 
+# === Plot Rolling Futures and Button ===
 if df is not None and "Rolling Futures" in df.columns:
     st.subheader("Rolling Futures Time Series")
     st.plotly_chart(plot_rolling_futures(df), use_container_width=True)
+
+    # Button directly below chart
+    if st.button("Show Futures Term Structure Over Time"):
+        with st.spinner("Generating GIF..."):
+            gif_path = generate_futures_gif(
+                df.pivot(index="date", columns="tenor", values="px_last").reset_index(),
+                sheet_name=raw_df['description'].iloc[0] if "description" in raw_df.columns else selected_ticker,
+                save_path="futures_curve.gif"
+            )
+            st.image(gif_path)
 
 # === Strategy Controls ===
 left_sidebar.markdown("---")
