@@ -2,7 +2,6 @@ import os
 import sys
 import streamlit as st
 import pandas as pd
-import tempfile
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
@@ -174,7 +173,7 @@ if df is not None:
         ].copy()
 
         signal = get_signal(strategy, df_filtered.copy(), **params[strategy])
-        price_col = params[strategy].get("price_col") or params[strategy].get("front_col")
+        price_col = "Rolling Futures"
         pnl_series = apply_strategy_returns(df_filtered, signal, price_col=price_col)
         pnl_series.index = df_filtered["date"]
 
@@ -193,15 +192,3 @@ if df is not None:
         col6.metric("Max Drawdown", f"{metrics['Max Drawdown']}")
 
         st.metric("Return on Drawdown", f"{metrics['Return on Drawdown']}")
-
-# === Futures Term Structure GIF (again) ===
-st.markdown("---")
-if st.button("Show Futures Term Structure Over Time"):
-    st.subheader("Futures Curve Animation")
-    ts_df = raw_df.pivot(index="date", columns="tenor", values="px_last").reset_index()
-    if ts_df.isna().all().any():
-        st.warning("Not enough data to generate futures curve.")
-    else:
-        with tempfile.NamedTemporaryFile(suffix=".gif", delete=False) as tmpfile:
-            gif_path = generate_futures_gif(ts_df, sheet_name=selected_ticker, save_path=tmpfile.name)
-            st.image(gif_path, caption="Futures Curve Over Time", use_column_width=True)

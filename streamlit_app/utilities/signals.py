@@ -30,7 +30,7 @@ def carry(df, front_col, back_col, threshold=0.0):
     Carry signal: +1 if yesterday's F(front) - F(back) > threshold
                   -1 if < -threshold
                   0 if in between
-    No lookahead bias — uses T−1 data for signal at T.
+    Buy in backwardation, sell in contango
     """
     spread = (
         pd.to_numeric(df[front_col], errors="coerce").shift(1)
@@ -53,6 +53,8 @@ def value_signal(df, price_col, window, threshold=0.0):
     return signal
 
 
+
+# === TO IMPLEMENT ===
 def time_weighted_momentum(df, price_col, window, threshold):
     dp = df[price_col].diff()
     weights = np.array([(window - i) / window for i in range(1, window)])
@@ -65,7 +67,6 @@ def time_weighted_momentum(df, price_col, window, threshold):
     return signal.shift(1)
 
 
-# === 3. MA Crossover Momentum ===
 def crossover_momentum(df, price_col, fast, slow, threshold):
     ma_fast = moving_average(df[price_col], fast)
     ma_slow = moving_average(df[price_col], slow)
@@ -79,9 +80,6 @@ def multi_momentum(df, price_col, pairs, weights, threshold):
     signals = [crossover_momentum(df, price_col, fast, slow, threshold) for (fast, slow) in pairs]
     combined = sum(w * s for w, s in zip(weights, signals))
     return sign_signal(combined, threshold)
-
-
-
 
 
 # === 6. Carry Momentum ===
