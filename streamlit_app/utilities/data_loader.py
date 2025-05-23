@@ -4,21 +4,9 @@ import pandas as pd
 import requests
 
 def download_file_from_google_drive(id, destination):
-    import requests
-
-    URL = "https://docs.google.com/uc?export=download"
-    session = requests.Session()
-
-    response = session.get(URL, params={"id": id}, stream=True)
-    token = get_confirm_token(response)
-
-    if token:
-        params = {"id": id, "confirm": token}
-        response = session.get(URL, params=params, stream=True)
-
-    save_response_content(response, destination)
-    print(f"[DEBUG] Downloaded {destination}, size: {os.path.getsize(destination) / 1_000_000:.2f} MB")
-
+    import gdown
+    url = f"https://drive.google.com/uc?id={id}"
+    gdown.download(url, destination, quiet=False)
 
 def get_confirm_token(response):
     for key, value in response.cookies.items():
