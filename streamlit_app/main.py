@@ -116,7 +116,7 @@ if df is not None and "Rolling Futures" in df.columns:
     st.subheader("Rolling Futures Time Series")
     st.plotly_chart(plot_rolling_futures(df), use_container_width=True)
 
-    if st.button("Show Futures Term Structure Over Time"):
+    if st.button("Show Futures Term Structure Over Time", key="futures_term_structure_button"):
         with st.spinner("Generating GIF..."):
             gif_path = generate_futures_gif(
                 df.pivot(index="date", columns="tenor", values="px_last").reset_index(),
