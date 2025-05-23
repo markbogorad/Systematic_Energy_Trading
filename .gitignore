@@ -19,3 +19,6 @@ __pycache__/
 # Logs and temp files
 *.log
 *.tmp
+
+# Database
+echo "commodities.db" >> .gitignore

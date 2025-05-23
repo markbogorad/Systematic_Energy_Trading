@@ -9,7 +9,7 @@ import pandas as pd
 def plot_rolling_futures(df, price_col="Rolling Futures"):
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=df["Date"],
+        x=df["date"],
         y=df[price_col],
         mode="lines",
         name="Rolling Futures"
@@ -82,21 +82,47 @@ def generate_futures_gif(df, sheet_name="Commodity", save_path="futures_curve.gi
 
     return save_path
 
-def visualize_signal(df, price_col, signal_series, title="Strategy Signal"):
+from streamlit_app.utilities.metrics import compute_strategy_metrics
+import plotly.graph_objects as go
+
+def visualize_signal(signal_series, title="Strategy PnL"):
+    # Compute strategy metrics
+    metrics = compute_strategy_metrics(signal_series)
+    metrics_text = "<br>".join([f"{k}: {v:.2f}" for k, v in metrics.items()])
+
     fig = go.Figure()
 
+    # Plot the PnL line
     fig.add_trace(go.Scatter(
-        x=df.index, y=df[price_col],
-        name="Price", line=dict(color='blue')
+        x=signal_series.index,
+        y=signal_series,
+        name="Strategy PnL",
+        line=dict(color="green")
     ))
+
+    # Add metrics box
+    fig.add_annotation(
+        text=metrics_text,
+        xref="paper", yref="paper",
+        x=1.01, y=1,
+        showarrow=False,
+        align="left",
+        font=dict(size=12),
+        bordercolor="gray",
+        borderwidth=1,
+        bgcolor="white"
+    )
 
     fig.update_layout(
         title=title,
         xaxis_title="Date",
-        yaxis_title=price_col,
+        yaxis_title="Cumulative PnL",
         height=400,
         template="plotly_white",
-        showlegend=True
+        showlegend=True,
+        margin=dict(r=150)  # extra space for the annotation
     )
 
     return fig
+
+

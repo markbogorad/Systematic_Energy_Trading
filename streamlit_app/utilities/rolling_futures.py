@@ -1,8 +1,9 @@
 import pandas as pd
-from pandas.tseries.offsets import MonthEnd, BDay
+from pandas.tseries.offsets import MonthEnd
 
-# === 0. Safe Date Column Detection ===
-def ensure_date_column(df, date_col="Date"):
+
+def ensure_date_column(df, date_col="date"):
+    """Ensures there is a properly named and typed 'date' column."""
     if date_col not in df.columns:
         for col in df.columns:
             if "date" in col.lower():
@@ -13,116 +14,133 @@ def ensure_date_column(df, date_col="Date"):
     df[date_col] = pd.to_datetime(df[date_col])
     return df
 
-# === 1. End-of-Month (EOM) Rolling Calendar ===
-def define_eom_roll_calendar(df, date_col="Date"):
+
+def pivot_long_to_wide(df, date_col="date", tenor_col="tenor", price_col="price"):
+    """Converts long-format SQL table to wide format for rolling logic."""
+    df = df.rename(columns={
+        date_col: "date",
+        tenor_col: "tenor",
+        price_col: "price"
+    })
+    df["date"] = pd.to_datetime(df["date"])
+
+    # Drop duplicates if necessary
+    df = df.drop_duplicates(subset=["date", "tenor"])
+
+    wide_df = df.pivot(index="date", columns="tenor", values="price").reset_index()
+
+    # Ensure the pivot didn't result in an empty DataFrame
+    if wide_df.drop(columns="date").isna().all().all():
+        raise ValueError("Pivoted futures table is empty — no price data found.")
+    
+    return wide_df
+
+
+def define_eom_roll_calendar(df, date_col="date"):
+    """Adds EOM-based rolling logic to the price DataFrame."""
     df = ensure_date_column(df.copy(), date_col)
-    df['Roll'] = (df[date_col] == (df[date_col] + MonthEnd(0))).astype(int)
-    df['Action'] = 'Hold'
-    df.loc[df.index[0], 'Action'] = 'Buy'
-    df.loc[df['Roll'] == 1, 'Action'] = 'Sell & Buy'
-    df.loc[df.index[-1], 'Action'] = 'Sell'
-    df['Holding'] = 'F1'
-    df.loc[df['Roll'] == 1, 'Holding'] = 'F2'
+    df["Roll"] = (df[date_col] == (df[date_col] + MonthEnd(0))).astype(int)
+    df["Action"] = "Hold"
+    if not df.empty:
+        df.loc[df.index[0], "Action"] = "Buy"
+        df.loc[df["Roll"] == 1, "Action"] = "Sell & Buy"
+        df.loc[df.index[-1], "Action"] = "Sell"
+        df["Holding"] = "F1"
+        df.loc[df["Roll"] == 1, "Holding"] = "F2"
     return df
 
-# === 2. Rolling Calendar Based on Expiry File ===
-def load_calendar_and_define_roll(filepath, df, date_col="Date", t_minus_days=5):
-    df = ensure_date_column(df.copy(), date_col)
-    calendar = pd.read_excel(filepath, sheet_name="Expiration Calendar", header=None)
-    calendar.columns = ['Expiry']
-    calendar['Expiry'] = pd.to_datetime(calendar['Expiry'])
-    calendar['Roll_Date'] = calendar['Expiry'] - BDay(t_minus_days)
 
-    adjusted = []
-    for roll_date in calendar['Roll_Date']:
-        valid = df[df[date_col] <= roll_date][date_col]
-        adjusted.append(valid.iloc[-1] if not valid.empty else roll_date)
+def calculate_rolling_futures(df, transaction_cost, f1_col="F1", f2_col="F2"):
+    """Simulates rolling futures performance based on defined action and holding columns."""
+    if df.empty:
+        raise ValueError("No data available for rolling computation.")
 
-    calendar['Adjusted_Roll'] = adjusted
-    return calendar
-
-def integrate_calendar_roll(df, calendar_df, date_col="Date"):
-    df = ensure_date_column(df.copy(), date_col)
-    roll_dates = calendar_df['Adjusted_Roll'].tolist()
-    expiry_dates = calendar_df['Expiry'].tolist()
-
-    df['Roll'] = 0
-    df.loc[df[date_col].isin(roll_dates), 'Roll'] = 1
-    df.loc[df[date_col].isin(expiry_dates), 'Roll'] = 2
-
-    holding = []
-    current = 'F1'
-    for _, row in df.iterrows():
-        if row['Roll'] == 1:
-            current = 'F2'
-        elif row['Roll'] == 2:
-            current = 'F1'
-        holding.append(current)
-    df['Holding'] = holding
-
-    df['Action'] = 'Hold'
-    df.loc[df.index[0], 'Action'] = 'Buy'
-    df.loc[df['Roll'] == 1, 'Action'] = 'Sell & Buy'
-    df.loc[df.index[-1], 'Action'] = 'Sell'
-    return df
-
-# === 3. PnL Computation ===
-def calculate_rolling_futures(df, transaction_cost=0.002, f1_col="F1", f2_col="F2"):
     df = df.copy()
     pnl, val, cost = [], [], []
     total_cost = 0
 
-    for i in range(len(df)):
-        row = df.iloc[i]
-        if i == 0:
-            price = row[f1_col]
-            tc = transaction_cost
-            adjusted = price - tc
-            pnl.append(0)
-        else:
-            prev = df.iloc[i - 1]
-            if row['Roll'] == 1:
-                delta = row[f1_col] - prev[f1_col]
-                tc = 2 * transaction_cost
-            elif row['Roll'] == 2:
-                delta = row[f1_col] - prev[f2_col]
-                tc = 0
-            else:
-                if prev['Holding'] == 'F1':
-                    delta = row[f1_col] - prev[f1_col]
-                else:
-                    delta = row[f2_col] - prev[f2_col]
-                tc = 0
-            adjusted += delta - tc
-            pnl.append(delta - tc)
+    adjusted = df.iloc[0][f1_col] - transaction_cost
+    pnl.append(0)
+    val.append(adjusted)
+    cost.append(transaction_cost)
 
+    for i in range(1, len(df)):
+        prev = df.iloc[i - 1]
+        curr = df.iloc[i]
+
+        if curr["Roll"] == 1:
+            delta = curr[f1_col] - prev[f1_col]
+            tc = 2 * transaction_cost
+        elif curr["Roll"] == 2:
+            delta = curr[f1_col] - prev[f2_col]
+            tc = 0
+        else:
+            if prev["Holding"] == "F1":
+                delta = curr[f1_col] - prev[f1_col]
+            else:
+                delta = curr[f2_col] - prev[f2_col]
+            tc = 0
+
+        adjusted += delta - tc
         total_cost += tc
+
+        pnl.append(delta - tc)
         val.append(adjusted)
         cost.append(total_cost)
 
-    df['Rolling Futures'] = val
-    df['Rolling PnL'] = pnl
-    df['Cumulative Cost'] = cost
-    df['Transaction Cost'] = df['Action'].map({
-        'Buy': transaction_cost,
-        'Sell': transaction_cost,
-        'Sell & Buy': 2 * transaction_cost
+    df["Rolling Futures"] = val
+    df["Rolling PnL"] = pnl
+    df["Cumulative Cost"] = cost
+    df["Transaction Cost"] = df["Action"].map({
+        "Buy": transaction_cost,
+        "Sell": transaction_cost,
+        "Sell & Buy": 2 * transaction_cost
     }).fillna(0)
+
     return df
 
-# === 4. Master Wrapper ===
-def compute_rolling_futures(df, method="eom", transaction_cost=0.002, date_col="Date", calendar_path=None, f1_col="F1", f2_col="F2"):
-    method = method.lower()
-    df = ensure_date_column(df.copy(), date_col)
+def compute_rolling_futures(
+    df_long,
+    transaction_cost,
+    method="eom",
+    f1_col="F1",
+    f2_col="F2",
+    date_col="date",
+    tenor_col="tenor",
+    price_col="price"
+):
+    """Wrapper to compute rolling futures from long-format SQL data."""
+    if method != "eom":
+        raise ValueError("Only 'eom' (End-of-Month) roll method is supported.")
 
-    if method == "eom":
-        df = define_eom_roll_calendar(df, date_col=date_col)
-    elif method == "roll mandate + calendar":
-        if calendar_path is None:
-            raise ValueError("Calendar file path must be provided for calendar-based rolling.")
-        calendar_df = load_calendar_and_define_roll(calendar_path, df, date_col=date_col)
-        df = integrate_calendar_roll(df, calendar_df, date_col=date_col)
-    else:
-        raise ValueError("Invalid roll method: choose 'eom' or 'roll mandate + calendar'.")
+    wide_df = pivot_long_to_wide(df_long, date_col, tenor_col, price_col)
 
-    return calculate_rolling_futures(df, transaction_cost=transaction_cost, f1_col=f1_col, f2_col=f2_col)
+    tenor_cols = [col for col in wide_df.columns if col != "date"]
+    found_pair = False
+
+    for i in range(len(tenor_cols) - 1):
+        col1, col2 = tenor_cols[i], tenor_cols[i + 1]
+
+        # Convert candidate columns to numeric
+        wide_df[col1] = pd.to_numeric(wide_df[col1], errors="coerce")
+        wide_df[col2] = pd.to_numeric(wide_df[col2], errors="coerce")
+
+        tmp = wide_df[[col1, col2]].dropna()
+        if not tmp.empty:
+            wide_df = wide_df.rename(columns={col1: f1_col, col2: f2_col})
+            found_pair = True
+            break
+
+    if not found_pair:
+        raise ValueError("No tenor pair with overlapping non-NaN data found.")
+
+    # Trim front: start from first date where both F1 and F2 exist
+    valid_idx = wide_df[[f1_col, f2_col]].dropna().index
+    if valid_idx.empty:
+        raise ValueError("No usable data found with non-NaN F1 and F2.")
+    wide_df = wide_df.loc[valid_idx[0]:].copy()
+
+    wide_df = define_eom_roll_calendar(wide_df, date_col="date")
+    result_df = calculate_rolling_futures(wide_df, transaction_cost, f1_col, f2_col)
+
+    return result_df

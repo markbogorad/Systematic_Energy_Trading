@@ -8,16 +8,51 @@ def moving_average(series, window):
 def sign_signal(series, threshold=0.0):
     return series.apply(lambda x: +1 if x > threshold else -1 if x < -threshold else 0)
 
+# MA
+def basic_momentum(df, price_col, window, threshold=0.0):
+    """
+    Signal:
+    +1 if (lagged price - MA) > threshold
+    -1 if (lagged price - MA) < -threshold
+     0 if in between
+    """
+    lagged_price = df[price_col].shift(1)
+    ma = moving_average(lagged_price, window)
+    delta = lagged_price - ma
 
-# === 1. Basic Momentum ===
-def basic_momentum(df, price_col, window, threshold):
-    ma = moving_average(df[price_col], window)
-    mt = df[price_col] - ma
-    signal = sign_signal(mt, threshold)
-    return signal.shift(1)
+    signal = (delta > threshold).astype(int) * 2 - 1
+
+    return signal
+
+# Carry
+def carry(df, front_col, back_col, threshold=0.0):
+    """
+    Carry signal: +1 if yesterday's F(front) - F(back) > threshold
+                  -1 if < -threshold
+                  0 if in between
+    No lookahead bias — uses T−1 data for signal at T.
+    """
+    spread = (
+        pd.to_numeric(df[front_col], errors="coerce").shift(1)
+        - pd.to_numeric(df[back_col], errors="coerce").shift(1)
+    )
+    signal = sign_signal(spread, threshold)
+    return signal 
+
+# Value
+def value_signal(df, price_col, window, threshold=0.0):
+    """
+    Value signal is the inverse of momentum:
+    Buy when price < MA, sell when price > MA.
+    Uses lagged price and MA to avoid lookahead.
+    """
+    lagged_price = df[price_col].shift(1)
+    ma = moving_average(lagged_price, window)
+    delta = lagged_price - ma
+    signal = -sign_signal(delta, threshold)  # invert momentum signal
+    return signal
 
 
-# === 2. Time-Weighted Momentum ===
 def time_weighted_momentum(df, price_col, window, threshold):
     dp = df[price_col].diff()
     weights = np.array([(window - i) / window for i in range(1, window)])
@@ -46,11 +81,7 @@ def multi_momentum(df, price_col, pairs, weights, threshold):
     return sign_signal(combined, threshold)
 
 
-# === 5. Carry ===
-def carry(df, front_col, back_col, threshold):
-    ct = df[front_col] - df[back_col]
-    signal = sign_signal(ct, threshold)
-    return signal.shift(1)
+
 
 
 # === 6. Carry Momentum ===
@@ -59,15 +90,6 @@ def carry_momentum(df, front_col, back_col, window, threshold):
     ma = moving_average(ct, window)
     signal = sign_signal(ct - ma, threshold)
     return signal.shift(1)
-
-
-# === 7. Value (Mean Reversion to MA) ===
-def value_signal(df, price_col, window, threshold):
-    ma = moving_average(df[price_col], window)
-    mt = df[price_col] - ma
-    signal = -sign_signal(mt, threshold)
-    return signal.shift(1)
-
 
 # === 8. Carry of Carry ===
 def carry_of_carry(df, front_col, back_col, threshold):
@@ -122,6 +144,12 @@ def fade_crowded_trade(df, mm_col, epsilon, n):
 
     signal = SI.apply(fade_signal)
     return signal.shift(1)
+
+def apply_strategy_returns(df, signal, price_col="Rolling Futures"):
+    price = pd.to_numeric(df[price_col], errors="coerce")
+    returns = price.diff().fillna(0)
+    pnl = signal.shift(1) * returns  # shift signal to avoid lookahead
+    return pnl.cumsum()
 
 
 # Dispatcher
