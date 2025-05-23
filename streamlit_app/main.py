@@ -3,37 +3,28 @@ import sys
 import streamlit as st
 import pandas as pd
 import tempfile
-import requests
-
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
 from streamlit_app.utilities.signals import get_signal, apply_strategy_returns, strategy_functions
-from streamlit_app.utilities.data_loader import load_filtered_commodities, get_filter_options, download_file_from_google_drive
-from streamlit_app.utilities.visualization import plot_rolling_futures, generate_futures_gif, visualize_signal
+from streamlit_app.utilities.data_loader import (
+    load_filtered_commodities,
+    get_filter_options,
+    ensure_database
+)
+from streamlit_app.utilities.visualization import (
+    plot_rolling_futures,
+    generate_futures_gif,
+    visualize_signal
+)
 from streamlit_app.utilities.rolling_futures import compute_rolling_futures
 from streamlit_app.utilities.metrics import compute_strategy_metrics
 
+# === DB SETUP ===
 DB_ID = "1moztw7N-byWmYd1nJGuOZnHYWEZuYjFB"
-DB_PATH = "commodities.db"
-
-import os
-
-if os.path.exists(DB_PATH):
-    print(f"[DEBUG] DB exists: {DB_PATH}")
-    print(f"[DEBUG] File size: {os.path.getsize(DB_PATH)} bytes")
-    with open(DB_PATH, "rb") as f:
-        header = f.read(100)
-        print(f"[DEBUG] Header: {header[:20]}")
-else:
-    print("[DEBUG] DB file does not exist")
-
-if not os.path.exists(DB_PATH):
-    print("Downloading commodities.db...")
-    download_file_from_google_drive(DB_ID, DB_PATH)
-    print("Download complete.")
+DATA_PATH = ensure_database(file_id=DB_ID)
 
 # === CACHING UTILITIES ===
 @st.cache_data
@@ -57,11 +48,9 @@ def get_cached_rolling(df, transaction_cost):
         price_col="px_last"
     )
 
-# === SETUP ===
+# === PAGE SETUP ===
 st.set_page_config(page_title="Commodity Strategy Visualizer", layout="wide")
 st.title("Commodity Strategy Visualizer")
-
-DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "commodities.db")
 
 # === SIDEBAR FILTERS ===
 right_sidebar = st.sidebar.container()
@@ -78,7 +67,6 @@ if raw_df_all.empty or "bbg_ticker" not in raw_df_all.columns:
     st.warning("No commodities found under this tag.")
     st.stop()
 
-# Keep only tickers with non-empty data
 non_empty_tickers = (
     raw_df_all.groupby("bbg_ticker")
     .filter(lambda df: not df.empty and df["px_last"].notna().any())
@@ -87,8 +75,6 @@ non_empty_tickers = (
 if non_empty_tickers.empty:
     st.warning("No tickers with data found under this tag.")
     st.stop()
-
-ticker_cols = ["bbg_ticker", "description"]
 
 available = non_empty_tickers[["bbg_ticker", "description"]].dropna().drop_duplicates()
 available["display"] = available["bbg_ticker"] + " — " + available["description"].fillna("")
@@ -131,7 +117,6 @@ if df is not None and "Rolling Futures" in df.columns:
     st.subheader("Rolling Futures Time Series")
     st.plotly_chart(plot_rolling_futures(df), use_container_width=True)
 
-    # Button directly below chart
     if st.button("Show Futures Term Structure Over Time"):
         with st.spinner("Generating GIF..."):
             gif_path = generate_futures_gif(
@@ -209,7 +194,7 @@ if df is not None:
 
         st.metric("Return on Drawdown", f"{metrics['Return on Drawdown']}")
 
-# === Futures Term Structure GIF ===
+# === Futures Term Structure GIF (again) ===
 st.markdown("---")
 if st.button("Show Futures Term Structure Over Time"):
     st.subheader("Futures Curve Animation")
