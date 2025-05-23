@@ -5,7 +5,7 @@ import pandas as pd
 import tempfile
 import requests
 
-DB_URL = "https://drive.google.com/file/d/1moztw7N-byWmYd1nJGuOZnHYWEZuYjFB/view?usp=share_link"
+DB_URL = "https://drive.google.com/uc?export=download&id=1moztw7N-byWmYd1nJGuOZnHYWEZuYjFB"
 DB_PATH = "commodities.db"
 
 if not os.path.exists(DB_PATH):
