@@ -3,15 +3,22 @@ import sqlite3
 import pandas as pd
 import requests
 
-# Google Drive download utilities
 def download_file_from_google_drive(id, destination):
+    import requests
+
     URL = "https://docs.google.com/uc?export=download"
     session = requests.Session()
+
     response = session.get(URL, params={"id": id}, stream=True)
     token = get_confirm_token(response)
+
     if token:
-        response = session.get(URL, params={"id": id, "confirm": token}, stream=True)
+        params = {"id": id, "confirm": token}
+        response = session.get(URL, params=params, stream=True)
+
     save_response_content(response, destination)
+    print(f"[DEBUG] Downloaded {destination}, size: {os.path.getsize(destination) / 1_000_000:.2f} MB")
+
 
 def get_confirm_token(response):
     for key, value in response.cookies.items():
@@ -25,9 +32,9 @@ def save_response_content(response, destination, chunk_size=32768):
             if chunk:
                 f.write(chunk)
 
-# Ensure DB file is present and valid
 def ensure_database(file_path="commodities.db", file_id=None):
     if os.path.exists(file_path) and os.path.getsize(file_path) > 10_000_000:
+        print(f"[DEBUG] DB already exists: {file_path}")
         return file_path
 
     if file_id is None:
@@ -36,11 +43,18 @@ def ensure_database(file_path="commodities.db", file_id=None):
     print("[DEBUG] Downloading commodities.db from Google Drive...")
     download_file_from_google_drive(file_id, file_path)
 
-    if os.path.getsize(file_path) < 10_000_000:
-        raise ValueError("Downloaded file appears corrupted or incomplete.")
+    size = os.path.getsize(file_path)
+    print(f"[DEBUG] Downloaded file size: {size / 1_000_000:.2f} MB")
     
+    if size < 10_000_000:
+        with open(file_path, "rb") as f:
+            print("[DEBUG] First 100 bytes of file (for diagnostics):")
+            print(f.read(100))
+        raise ValueError("Downloaded file appears corrupted or incomplete.")
+
     print("[DEBUG] Download complete.")
     return file_path
+
 
 # Core data loading functions
 def load_commodity_data(db_path):
