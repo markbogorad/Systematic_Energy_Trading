@@ -2,6 +2,7 @@ import os
 import sys
 import streamlit as st
 import pandas as pd
+import tempfile
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
@@ -12,7 +13,6 @@ from streamlit_app.utilities.data_loader import load_filtered_commodities, get_f
 from streamlit_app.utilities.visualization import plot_rolling_futures, generate_futures_gif, visualize_signal
 from streamlit_app.utilities.rolling_futures import compute_rolling_futures
 from streamlit_app.utilities.metrics import compute_strategy_metrics
-
 
 # === CACHING UTILITIES ===
 @st.cache_data
@@ -46,12 +46,10 @@ DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "commodities.db")
 right_sidebar = st.sidebar.container()
 right_sidebar.header("Filter Futures")
 
-# Step 1: Internal Tag Selector
 internal_tags, _ = get_cached_filter_options(DATA_PATH)
 internal_tags = sorted(internal_tags, key=lambda x: (x != "Catherine Rec", x))
 internal_tag = right_sidebar.selectbox("Internal Tag", internal_tags)
 
-# Step 2: Load matching commodities
 commodity_dict = get_cached_commodities(DATA_PATH, internal_tag)
 raw_df_all = commodity_dict.get("futures", pd.DataFrame())
 
@@ -59,15 +57,24 @@ if raw_df_all.empty or "bbg_ticker" not in raw_df_all.columns:
     st.warning("No commodities found under this tag.")
     st.stop()
 
-# Step 3: Build second dropdown from available tickers
+# Keep only tickers with non-empty data
+non_empty_tickers = (
+    raw_df_all.groupby("bbg_ticker")
+    .filter(lambda df: not df.empty and df["px_last"].notna().any())
+)
+
+if non_empty_tickers.empty:
+    st.warning("No tickers with data found under this tag.")
+    st.stop()
+
 ticker_cols = ["bbg_ticker", "description"]
-available = raw_df_all[ticker_cols].dropna().drop_duplicates()
+
+available = non_empty_tickers[["bbg_ticker", "description"]].dropna().drop_duplicates()
 available["display"] = available["bbg_ticker"] + " — " + available["description"].fillna("")
 
 selected_display = right_sidebar.selectbox("Select BBG Ticker", available["display"])
 selected_ticker = selected_display.split(" — ")[0]
 
-# Step 4: Load only selected ticker’s data
 raw_df = raw_df_all[raw_df_all["bbg_ticker"] == selected_ticker].copy()
 
 if raw_df.empty:
@@ -77,7 +84,6 @@ if raw_df.empty:
 if "description" in raw_df.columns:
     st.markdown(f"**Commodity**: {raw_df['description'].iloc[0]}")
 
-# === Data Validation ===
 if raw_df.index.name and "date" in raw_df.index.name.lower():
     raw_df = raw_df.reset_index()
 
@@ -99,7 +105,6 @@ except Exception as e:
     st.error(f"Rolling futures computation failed: {e}")
     df = None
 
-# === Plotting Rolling Futures ===
 if df is not None and "Rolling Futures" in df.columns:
     st.subheader("Rolling Futures Time Series")
     st.plotly_chart(plot_rolling_futures(df), use_container_width=True)
@@ -121,14 +126,12 @@ for strategy in selected_strategies:
         }
     elif strategy == "Carry":
         valid_tenors = [col for col in df.columns if col.endswith("m") and col[:-1].isdigit()]
-        valid_tenors = sorted(valid_tenors, key=lambda x: int(x[:-1]))  # sort numerically
-
+        valid_tenors = sorted(valid_tenors, key=lambda x: int(x[:-1]))
         params[strategy] = {
             "front_col": left_sidebar.selectbox("Carry Front Tenor", valid_tenors, index=0),
             "back_col": left_sidebar.selectbox("Carry Back Tenor", valid_tenors, index=3),
             "threshold": left_sidebar.number_input(f"{strategy} - Threshold", value=0.05, step=0.01)
         }
-
         left_sidebar.caption("Default is front = 1m, back = 4m")
 
 # === Strategy Outputs ===
@@ -137,18 +140,30 @@ if df is not None:
     for strategy in selected_strategies:
         st.markdown(f"### {strategy}")
 
-        signal = get_signal(strategy, df.copy(), **params[strategy])
-        price_col = params[strategy].get("price_col") or params[strategy].get("front_col")
-        pnl_series = apply_strategy_returns(df, signal, price_col=price_col)
-        pnl_series.index = df["date"]  # Ensure datetime x-axis
+        min_date = df["date"].min().date()
+        max_date = df["date"].max().date()
 
-        fig = visualize_signal(
-            signal_series=pnl_series,
-            title=f"{strategy} Strategy PnL"
+        date_range = st.slider(
+            f"{strategy} – Select Time Horizon",
+            min_value=min_date,
+            max_value=max_date,
+            value=(min_date, max_date),
+            format="YYYY-MM-DD"
         )
+
+        df_filtered = df[
+            (df["date"] >= pd.to_datetime(date_range[0])) & 
+            (df["date"] <= pd.to_datetime(date_range[1]))
+        ].copy()
+
+        signal = get_signal(strategy, df_filtered.copy(), **params[strategy])
+        price_col = params[strategy].get("price_col") or params[strategy].get("front_col")
+        pnl_series = apply_strategy_returns(df_filtered, signal, price_col=price_col)
+        pnl_series.index = df_filtered["date"]
+
+        fig = visualize_signal(pnl_series=pnl_series, title=f"{strategy} Strategy PnL")
         st.plotly_chart(fig, use_container_width=True)
 
-        # 🔥 Add metrics block below chart
         metrics = compute_strategy_metrics(pnl_series)
         col1, col2, col3 = st.columns(3)
         col1.metric("Total P&L", f"{metrics['Total P&L']}")
@@ -161,3 +176,15 @@ if df is not None:
         col6.metric("Max Drawdown", f"{metrics['Max Drawdown']}")
 
         st.metric("Return on Drawdown", f"{metrics['Return on Drawdown']}")
+
+# === Futures Term Structure GIF ===
+st.markdown("---")
+if st.button("Show Futures Term Structure Over Time"):
+    st.subheader("Futures Curve Animation")
+    ts_df = raw_df.pivot(index="date", columns="tenor", values="px_last").reset_index()
+    if ts_df.isna().all().any():
+        st.warning("Not enough data to generate futures curve.")
+    else:
+        with tempfile.NamedTemporaryFile(suffix=".gif", delete=False) as tmpfile:
+            gif_path = generate_futures_gif(ts_df, sheet_name=selected_ticker, save_path=tmpfile.name)
+            st.image(gif_path, caption="Futures Curve Over Time", use_column_width=True)

@@ -82,47 +82,32 @@ def generate_futures_gif(df, sheet_name="Commodity", save_path="futures_curve.gi
 
     return save_path
 
-from streamlit_app.utilities.metrics import compute_strategy_metrics
 import plotly.graph_objects as go
+import pandas as pd
 
-def visualize_signal(signal_series, title="Strategy PnL"):
-    # Compute strategy metrics
-    metrics = compute_strategy_metrics(signal_series)
-    metrics_text = "<br>".join([f"{k}: {v:.2f}" for k, v in metrics.items()])
-
+def visualize_signal(pnl_series: pd.Series, title="Strategy PnL"):
     fig = go.Figure()
 
-    # Plot the PnL line
     fig.add_trace(go.Scatter(
-        x=signal_series.index,
-        y=signal_series,
-        name="Strategy PnL",
+        x=pnl_series.index,
+        y=pnl_series / 100,  # Convert to decimal for percentage formatting
+        name="Cumulative Return",
         line=dict(color="green")
     ))
-
-    # Add metrics box
-    fig.add_annotation(
-        text=metrics_text,
-        xref="paper", yref="paper",
-        x=1.01, y=1,
-        showarrow=False,
-        align="left",
-        font=dict(size=12),
-        bordercolor="gray",
-        borderwidth=1,
-        bgcolor="white"
-    )
 
     fig.update_layout(
         title=title,
         xaxis_title="Date",
-        yaxis_title="Cumulative PnL",
+        yaxis=dict(
+            title="Cumulative Return (%)",
+            tickformat=".0%",  # Formats ticks as percentages (e.g. 0.85 -> 85%)
+            titlefont=dict(color="green"),
+            tickfont=dict(color="green"),
+        ),
         height=400,
         template="plotly_white",
-        showlegend=True,
-        margin=dict(r=150)  # extra space for the annotation
+        legend=dict(orientation="h", x=0, y=1.1)
     )
 
     return fig
-
 

@@ -3,7 +3,7 @@ import numpy as np
 
 def compute_strategy_metrics(pnl_series: pd.Series, freq: str = 'D') -> dict:
     """
-    Compute key strategy performance metrics from a PnL time series.
+    Compute key strategy performance metrics from a cumulative PnL time series.
     
     Parameters:
     - pnl_series (pd.Series): Indexed by datetime, cumulative PnL.
@@ -12,6 +12,9 @@ def compute_strategy_metrics(pnl_series: pd.Series, freq: str = 'D') -> dict:
     Returns:
     - dict of metrics
     """
+    # Clean and ensure sorted datetime index
+    pnl_series = pnl_series.dropna().sort_index()
+
     if pnl_series.empty or pnl_series.isna().all():
         return {
             "Total P&L": np.nan,
@@ -23,18 +26,20 @@ def compute_strategy_metrics(pnl_series: pd.Series, freq: str = 'D') -> dict:
             "Return on Drawdown": np.nan
         }
 
-    # Daily returns (difference from previous PnL)
-    daily_returns = pnl_series.diff().fillna(0)
-
-    # Annualization factor
+    daily_returns = pnl_series.diff().dropna()
     ann_factor = 252 if freq == 'D' else 12 if freq == 'M' else 1
 
+    # Total and annualized PnL
     total_pnl = pnl_series.iloc[-1] - pnl_series.iloc[0]
-    annual_pnl = daily_returns.mean() * ann_factor
+
+    num_years = (pnl_series.index[-1] - pnl_series.index[0]).days / 365.25
+    annual_pnl = total_pnl / num_years if num_years > 0 else np.nan
+
+    # Annualized volatility and Sharpe
     ann_std = daily_returns.std() * np.sqrt(ann_factor)
     sharpe = annual_pnl / ann_std if ann_std != 0 else np.nan
 
-    # High Water Mark and Drawdowns
+    # Drawdown calculations
     hwm = pnl_series.cummax()
     drawdown = hwm - pnl_series
     max_dd = drawdown.max()
@@ -50,10 +55,3 @@ def compute_strategy_metrics(pnl_series: pd.Series, freq: str = 'D') -> dict:
         "Max Drawdown": round(max_dd, 2),
         "Return on Drawdown": round(return_on_dd, 2)
     }
-
-# Generate dummy metrics for visual confirmation
-test_series = pd.Series(np.cumsum(np.random.randn(1000)), 
-                        index=pd.date_range(start="2015-01-01", periods=1000, freq="D"))
-
-metrics_result = compute_strategy_metrics(test_series)
-metrics_result

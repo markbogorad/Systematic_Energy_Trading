@@ -21,4 +21,4 @@ __pycache__/
 *.tmp
 
 # Database
-echo "commodities.db" >> .gitignore
+echo "**/commodities.db" >> .gitignore
