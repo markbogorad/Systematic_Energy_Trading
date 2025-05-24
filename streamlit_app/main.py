@@ -13,7 +13,8 @@ from streamlit_app.utilities.signals import get_signal, apply_strategy_returns, 
 from streamlit_app.utilities.data_loader import (
     load_filtered_commodities,
     get_filter_options,
-    ensure_database
+    ensure_database_by_tag,
+    get_available_internal_tags
 )
 from streamlit_app.utilities.visualization import (
     plot_rolling_futures,
@@ -29,8 +30,8 @@ def get_cached_filter_options(data_path):
     return get_filter_options(data_path)
 
 @st.cache_data
-def get_cached_commodities(data_path, internal_tag):
-    return load_filtered_commodities(data_path, internal_tag, None, None)
+def get_cached_commodities(data_path):
+    return load_filtered_commodities(data_path, None, None)
 
 @st.cache_data
 def get_cached_rolling(df, transaction_cost):
@@ -49,28 +50,18 @@ def get_cached_rolling(df, transaction_cost):
 st.set_page_config(page_title="Commodity Strategy Visualizer", layout="wide")
 st.title("Commodity Strategy Visualizer")
 
-# === HARD-CODED TAG DATABASE MAP ===
-TAG_TO_FILE_ID = {
-    "basics": "1CmUdyLvKneqLIzFnBO-c20d7oOaZvlzY",
-    "cme liquid": "1fyeaWrRC0tnb2kM-Vglq9a8ai-vNv-7p",
-    "catherine rec": "1TbOf3L6gVzL0QWon_XHoKZmOx9CK2nYT",
-    "liquid ice us": "18vg6zzASt2xXefmOpAZU20UC9XjhiWZl"
-}
-
 # === SIDEBAR FILTERS ===
 right_sidebar = st.sidebar.container()
 right_sidebar.header("Filter Futures")
 
-available_tags = sorted(TAG_TO_FILE_ID.keys(), key=lambda x: (x != "catherine rec", x))
+available_tags = sorted(get_available_internal_tags(), key=lambda x: (x != "Catherine Rec", x))
 internal_tag = right_sidebar.selectbox("Internal Tag", available_tags, key="internal_tag_select")
 
 # Download and load tag-specific database
-file_id = TAG_TO_FILE_ID[internal_tag.lower()]
-db_path = f"/tmp/commodities_{internal_tag.lower().replace(' ', '_')}.db"
-DATA_PATH = ensure_database(file_path=db_path, file_id=file_id)
+DATA_PATH = ensure_database_by_tag(internal_tag)
 
 # Load filtered tickers for selected tag
-commodity_dict = get_cached_commodities(DATA_PATH, internal_tag)
+commodity_dict = get_cached_commodities(DATA_PATH)
 raw_df_all = commodity_dict.get("futures", pd.DataFrame())
 
 if raw_df_all.empty or "bbg_ticker" not in raw_df_all.columns:
@@ -86,7 +77,7 @@ if non_empty_tickers.empty:
     st.warning("No tickers with data found under this tag.")
     st.stop()
 
-available = load_filtered_commodities(DATA_PATH, internal_tag, only_metadata=True)
+available = load_filtered_commodities(DATA_PATH, only_metadata=True)
 if available.empty:
     st.warning("No available tickers under this tag.")
     st.stop()
@@ -95,7 +86,7 @@ available["display"] = available["bbg_ticker"] + " — " + available["descriptio
 selected_display = right_sidebar.selectbox("Select BBG Ticker", available["display"])
 selected_ticker = selected_display.split(" — ")[0]
 
-commodity_dict = load_filtered_commodities(DATA_PATH, internal_tag, ticker_search=selected_ticker)
+commodity_dict = load_filtered_commodities(DATA_PATH, ticker_search=selected_ticker)
 raw_df_all = commodity_dict.get("futures", pd.DataFrame())
 raw_df = raw_df_all[raw_df_all["bbg_ticker"] == selected_ticker].copy()
 
@@ -199,4 +190,3 @@ if df is not None:
         col6.metric("Max Drawdown", f"{metrics['Max Drawdown']}")
 
         st.metric("Return on Drawdown", f"{metrics['Return on Drawdown']}")
-

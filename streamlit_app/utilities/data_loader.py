@@ -3,36 +3,20 @@ import sqlite3
 import pandas as pd
 import gdown
 
-def download_file_from_google_drive(id, destination):
-    import gdown
-    url = f"https://drive.google.com/uc?id={id}"
-    gdown.download(url, destination, quiet=False)
-
-def get_confirm_token(response):
-    for key, value in response.cookies.items():
-        if key.startswith("download_warning"):
-            return value
-    return None
-
-def save_response_content(response, destination, chunk_size=32768):
-    with open(destination, "wb") as f:
-        for chunk in response.iter_content(chunk_size):
-            if chunk:
-                f.write(chunk)
-
-# === Tag to DB Mapping ===
+# === Lowercase DB key map ===
 TAG_DB_MAP = {
-    "Basics":        ("commodities_basics.db", "1CmUdyLvKneqLIzFnBO-c20d7oOaZvlzY"),
-    "CME Liquid":    ("commodities_cme_liquid.db", "1fyeaWrRC0tnb2kM-Vglq9a8ai-vNv-7p"),
-    "Catherine Rec": ("commodities_catherine_rec.db", "1TbOf3L6gVzL0QWon_XHoKZmOx9CK2nYT"),
-    "Liquid ICE US": ("commodities_liquid_ice_us.db", "18vg6zzASt2xXefmOpAZU20UC9XjhiWZl"),
+    "basics":        ("commodities_basics.db", "1CmUdyLvKneqLIzFnBO-c20d7oOaZvlzY"),
+    "catherine rec":    ("commodities_cme_liquid.db", "1fyeaWrRC0tnb2kM-Vglq9a8ai-vNv-7p"),
+    "cme liquid": ("commodities_catherine_rec.db", "1TbOf3L6gVzL0QWon_XHoKZmOx9CK2nYT"),
+    "liquid ice us": ("commodities_liquid_ice_us.db", "18vg6zzASt2xXefmOpAZU20UC9XjhiWZl"),
 }
 
 def ensure_database_by_tag(internal_tag, tmp_dir="/tmp"):
-    if internal_tag not in TAG_DB_MAP:
+    tag_key = internal_tag.strip().lower()
+    if tag_key not in TAG_DB_MAP:
         raise ValueError(f"No database found for internal_tag: {internal_tag}")
 
-    filename, file_id = TAG_DB_MAP[internal_tag]
+    filename, file_id = TAG_DB_MAP[tag_key]
     local_path = os.path.join(tmp_dir, filename)
 
     if os.path.exists(local_path):
@@ -44,7 +28,7 @@ def ensure_database_by_tag(internal_tag, tmp_dir="/tmp"):
     return local_path
 
 
-# Core data loading functions
+
 def load_commodity_data(db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -54,7 +38,7 @@ def load_commodity_data(db_path):
     commodity_data = {}
     for (table_name,) in tables:
         try:
-            df = pd.read_sql(f"SELECT * FROM {table_name}", conn, parse_dates=["Date"])
+            df = pd.read_sql(f"SELECT * FROM {table_name}", conn, parse_dates=["date"])
             df.set_index("date", inplace=True)
             commodity_data[table_name] = df
         except Exception as e:
@@ -75,15 +59,17 @@ def load_filtered_commodities(db_path, internal_tag=None, exchange=None, ticker_
     meta_params = []
 
     if internal_tag:
-        base_query += " AND lower(internal_tag) = ?"
-        meta_query += " AND lower(internal_tag) = ?"
-        params.append(internal_tag.lower())
-        meta_params.append(internal_tag.lower())
+        base_query += " AND internal_tag = ?"
+        meta_query += " AND internal_tag = ?"
+        params.append(internal_tag)
+        meta_params.append(internal_tag)
+
     if exchange:
         base_query += " AND lower(exchange) = ?"
         meta_query += " AND lower(exchange) = ?"
         params.append(exchange.lower())
         meta_params.append(exchange.lower())
+
     if ticker_search:
         base_query += " AND lower(bbg_ticker) LIKE ?"
         meta_query += " AND lower(bbg_ticker) LIKE ?"
@@ -105,6 +91,7 @@ def load_filtered_commodities(db_path, internal_tag=None, exchange=None, ticker_
     df = pd.read_sql(base_query, conn, params=params, parse_dates=["date"])
     conn.close()
     return {"futures": df}
+
 
 def get_filter_options(db_path):
     conn = sqlite3.connect(db_path)
@@ -128,3 +115,7 @@ def get_filter_options(db_path):
 
     conn.close()
     return internal_tags, exchanges
+
+def get_available_internal_tags():
+    return sorted(TAG_DB_MAP.keys(), key=lambda x: (x != "Catherine Rec", x))
+
