@@ -77,23 +77,18 @@ if non_empty_tickers.empty:
     st.warning("No tickers with data found under this tag.")
     st.stop()
 
-available = non_empty_tickers[["bbg_ticker", "description"]].dropna().drop_duplicates()
-available["display"] = available["bbg_ticker"] + " — " + available["description"].fillna("")
-
-selected_display = right_sidebar.selectbox("Select BBG Ticker", available["display"], key="ticker_select")
-selected_ticker = selected_display.split(" — ")[0]
-
-raw_df = raw_df_all[raw_df_all["bbg_ticker"] == selected_ticker].copy()
-
-if raw_df.empty:
-    st.warning("No data found for selected ticker.")
+available = load_filtered_commodities(DATA_PATH, internal_tag, only_metadata=True)
+if available.empty:
+    st.warning("No available tickers under this tag.")
     st.stop()
 
-if "description" in raw_df.columns:
-    st.markdown(f"**Commodity**: {raw_df['description'].iloc[0]}")
+available["display"] = available["bbg_ticker"] + " — " + available["description"].fillna("")
+selected_display = right_sidebar.selectbox("Select BBG Ticker", available["display"])
+selected_ticker = selected_display.split(" — ")[0]
 
-if raw_df.index.name and "date" in raw_df.index.name.lower():
-    raw_df = raw_df.reset_index()
+commodity_dict = load_filtered_commodities(DATA_PATH, internal_tag, ticker_search=selected_ticker)
+raw_df_all = commodity_dict.get("futures", pd.DataFrame())
+raw_df = raw_df_all[raw_df_all["bbg_ticker"] == selected_ticker].copy()
 
 required_cols = {"date", "tenor", "px_last"}
 df_cols = set(col.lower() for col in raw_df.columns)

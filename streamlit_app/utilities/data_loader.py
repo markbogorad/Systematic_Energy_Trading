@@ -62,32 +62,69 @@ def load_commodity_data(db_path):
     conn.close()
     return commodity_data
 
-def load_filtered_commodities(db_path, internal_tag=None, exchange=None, ticker_search=None):
+def load_filtered_commodities(db_path, internal_tag=None, exchange=None, ticker_search=None, only_metadata=False):
     conn = sqlite3.connect(db_path)
-    query = "SELECT * FROM futures WHERE 1=1"
+
+    base_query = "SELECT * FROM futures WHERE 1=1"
+    meta_query = """
+        SELECT bbg_ticker, description
+        FROM futures
+        WHERE px_last IS NOT NULL
+    """
     params = []
+    meta_params = []
 
     if internal_tag:
-        query += " AND lower(internal_tag) = ?"
+        base_query += " AND lower(internal_tag) = ?"
+        meta_query += " AND lower(internal_tag) = ?"
         params.append(internal_tag.lower())
+        meta_params.append(internal_tag.lower())
     if exchange:
-        query += " AND lower(exchange) = ?"
+        base_query += " AND lower(exchange) = ?"
+        meta_query += " AND lower(exchange) = ?"
         params.append(exchange.lower())
+        meta_params.append(exchange.lower())
     if ticker_search:
-        query += " AND lower(bbg_ticker) LIKE ?"
-        params.append(f"%{ticker_search.lower()}%")
+        base_query += " AND lower(bbg_ticker) LIKE ?"
+        meta_query += " AND lower(bbg_ticker) LIKE ?"
+        like = f"%{ticker_search.lower()}%"
+        params.append(like)
+        meta_params.append(like)
 
-    df = pd.read_sql(query, conn, params=params)
+    if only_metadata:
+        query = f"""
+            SELECT bbg_ticker, description
+            FROM ({meta_query})
+            GROUP BY bbg_ticker
+            HAVING COUNT(*) > 0
+        """
+        df = pd.read_sql(query, conn, params=meta_params)
+        conn.close()
+        return df.dropna().drop_duplicates().reset_index(drop=True)
+
+    df = pd.read_sql(base_query, conn, params=params, parse_dates=["date"])
     conn.close()
     return {"futures": df}
 
 def get_filter_options(db_path):
     conn = sqlite3.connect(db_path)
     internal_tags = pd.read_sql(
-        "SELECT DISTINCT internal_tag FROM futures WHERE internal_tag IS NOT NULL ORDER BY internal_tag",
-        conn)["internal_tag"].dropna().tolist()
+        """
+        SELECT DISTINCT internal_tag
+        FROM futures
+        WHERE internal_tag IS NOT NULL
+        AND px_last IS NOT NULL
+        """, conn
+    )["internal_tag"].dropna().unique().tolist()
+
     exchanges = pd.read_sql(
-        "SELECT DISTINCT exchange FROM futures WHERE exchange IS NOT NULL ORDER BY exchange",
-        conn)["exchange"].dropna().tolist()
+        """
+        SELECT DISTINCT exchange
+        FROM futures
+        WHERE exchange IS NOT NULL
+        AND px_last IS NOT NULL
+        """, conn
+    )["exchange"].dropna().unique().tolist()
+
     conn.close()
     return internal_tags, exchanges
