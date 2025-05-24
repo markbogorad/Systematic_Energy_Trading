@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import pandas as pd
-import requests
+import gdown
 
 def download_file_from_google_drive(id, destination):
     import gdown
@@ -21,25 +21,15 @@ def save_response_content(response, destination, chunk_size=32768):
                 f.write(chunk)
 
 def ensure_database(file_path="commodities.db", file_id=None):
-    if os.path.exists(file_path) and os.path.getsize(file_path) > 10_000_000:
-        print(f"[DEBUG] DB already exists: {file_path}")
+    if os.path.exists(file_path):
         return file_path
 
     if file_id is None:
         raise ValueError("Missing Google Drive file ID to download database.")
 
     print("[DEBUG] Downloading commodities.db from Google Drive...")
-    download_file_from_google_drive(file_id, file_path)
-
-    size = os.path.getsize(file_path)
-    print(f"[DEBUG] Downloaded file size: {size / 1_000_000:.2f} MB")
-    
-    if size < 10_000_000:
-        with open(file_path, "rb") as f:
-            print("[DEBUG] First 100 bytes of file (for diagnostics):")
-            print(f.read(100))
-        raise ValueError("Downloaded file appears corrupted or incomplete.")
-
+    url = f"https://drive.google.com/uc?id={file_id}"
+    gdown.download(url, file_path, quiet=False)
     print("[DEBUG] Download complete.")
     return file_path
 

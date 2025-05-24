@@ -23,7 +23,7 @@ from streamlit_app.utilities.metrics import compute_strategy_metrics
 
 # === DB SETUP ===
 DB_ID = "1moztw7N-byWmYd1nJGuOZnHYWEZuYjFB"
-DATA_PATH = ensure_database(file_id=DB_ID)
+DATA_PATH = ensure_database(file_path="/tmp/commodities.db", file_id=DB_ID)
 
 # === CACHING UTILITIES ===
 @st.cache_data
