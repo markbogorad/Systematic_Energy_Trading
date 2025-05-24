@@ -3,15 +3,17 @@ import sys
 import streamlit as st
 import pandas as pd
 
+# Set project root path for imports
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
+# === IMPORT MODULES ===
 from streamlit_app.utilities.signals import get_signal, apply_strategy_returns, strategy_functions
 from streamlit_app.utilities.data_loader import (
     load_filtered_commodities,
     get_filter_options,
-    ensure_database_by_tag
+    ensure_database
 )
 from streamlit_app.utilities.visualization import (
     plot_rolling_futures,
@@ -20,7 +22,6 @@ from streamlit_app.utilities.visualization import (
 )
 from streamlit_app.utilities.rolling_futures import compute_rolling_futures
 from streamlit_app.utilities.metrics import compute_strategy_metrics
-
 
 # === CACHING UTILITIES ===
 @st.cache_data
@@ -44,23 +45,31 @@ def get_cached_rolling(df, transaction_cost):
         price_col="px_last"
     )
 
-
 # === PAGE SETUP ===
 st.set_page_config(page_title="Commodity Strategy Visualizer", layout="wide")
 st.title("Commodity Strategy Visualizer")
+
+# === HARD-CODED TAG DATABASE MAP ===
+TAG_TO_FILE_ID = {
+    "basics": "1CmUdyLvKneqLIzFnBO-c20d7oOaZvlzY",
+    "cme liquid": "1fyeaWrRC0tnb2kM-Vglq9a8ai-vNv-7p",
+    "catherine rec": "1TbOf3L6gVzL0QWon_XHoKZmOx9CK2nYT",
+    "liquid ice us": "18vg6zzASt2xXefmOpAZU20UC9XjhiWZl"
+}
 
 # === SIDEBAR FILTERS ===
 right_sidebar = st.sidebar.container()
 right_sidebar.header("Filter Futures")
 
-internal_tags, _ = get_cached_filter_options("/tmp/placeholder.db")  # use dummy path for cache key
-internal_tags = sorted(internal_tags, key=lambda x: (x != "Catherine Rec", x))
-internal_tag = right_sidebar.selectbox("Internal Tag", internal_tags, key="internal_tag_select")
+available_tags = sorted(TAG_TO_FILE_ID.keys(), key=lambda x: (x != "catherine rec", x))
+internal_tag = right_sidebar.selectbox("Internal Tag", available_tags, key="internal_tag_select")
 
-# Dynamically load the right DB file based on selected tag
-DATA_PATH = ensure_database_by_tag(internal_tag)
-internal_tag = right_sidebar.selectbox("Internal Tag", internal_tags, key="internal_tag_select")
+# Download and load tag-specific database
+file_id = TAG_TO_FILE_ID[internal_tag.lower()]
+db_path = f"/tmp/commodities_{internal_tag.lower().replace(' ', '_')}.db"
+DATA_PATH = ensure_database(file_path=db_path, file_id=file_id)
 
+# Load filtered tickers for selected tag
 commodity_dict = get_cached_commodities(DATA_PATH, internal_tag)
 raw_df_all = commodity_dict.get("futures", pd.DataFrame())
 
@@ -190,3 +199,4 @@ if df is not None:
         col6.metric("Max Drawdown", f"{metrics['Max Drawdown']}")
 
         st.metric("Return on Drawdown", f"{metrics['Return on Drawdown']}")
+
