@@ -22,10 +22,10 @@ def save_response_content(response, destination, chunk_size=32768):
 
 # === Tag to DB Mapping ===
 TAG_DB_MAP = {
-    "Basics":        ("commodities_basics.db", "YOUR_FILE_ID_1"),
-    "CME Liquid":    ("commodities_cme_liquid.db", "YOUR_FILE_ID_2"),
-    "Catherine Rec": ("commodities_catherine_rec.db", "YOUR_FILE_ID_3"),
-    "Liquid ICE US": ("commodities_liquid_ice_us.db", "YOUR_FILE_ID_4"),
+    "Basics":        ("commodities_basics.db", "1CmUdyLvKneqLIzFnBO-c20d7oOaZvlzY"),
+    "CME Liquid":    ("commodities_cme_liquid.db", "1fyeaWrRC0tnb2kM-Vglq9a8ai-vNv-7p"),
+    "Catherine Rec": ("commodities_catherine_rec.db", "1TbOf3L6gVzL0QWon_XHoKZmOx9CK2nYT"),
+    "Liquid ICE US": ("commodities_liquid_ice_us.db", "18vg6zzASt2xXefmOpAZU20UC9XjhiWZl"),
 }
 
 def ensure_database_by_tag(internal_tag, tmp_dir="/tmp"):
