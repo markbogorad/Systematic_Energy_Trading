@@ -20,18 +20,28 @@ def save_response_content(response, destination, chunk_size=32768):
             if chunk:
                 f.write(chunk)
 
-def ensure_database(file_path="commodities.db", file_id=None):
-    if os.path.exists(file_path):
-        return file_path
+# === Tag to DB Mapping ===
+TAG_DB_MAP = {
+    "Basics":        ("commodities_basics.db", "YOUR_FILE_ID_1"),
+    "CME Liquid":    ("commodities_cme_liquid.db", "YOUR_FILE_ID_2"),
+    "Catherine Rec": ("commodities_catherine_rec.db", "YOUR_FILE_ID_3"),
+    "Liquid ICE US": ("commodities_liquid_ice_us.db", "YOUR_FILE_ID_4"),
+}
 
-    if file_id is None:
-        raise ValueError("Missing Google Drive file ID to download database.")
+def ensure_database_by_tag(internal_tag, tmp_dir="/tmp"):
+    if internal_tag not in TAG_DB_MAP:
+        raise ValueError(f"No database found for internal_tag: {internal_tag}")
 
-    print("[DEBUG] Downloading commodities.db from Google Drive...")
+    filename, file_id = TAG_DB_MAP[internal_tag]
+    local_path = os.path.join(tmp_dir, filename)
+
+    if os.path.exists(local_path):
+        return local_path
+
+    print(f"[DEBUG] Downloading {filename} for tag: {internal_tag}")
     url = f"https://drive.google.com/uc?id={file_id}"
-    gdown.download(url, file_path, quiet=False)
-    print("[DEBUG] Download complete.")
-    return file_path
+    gdown.download(url, local_path, quiet=False)
+    return local_path
 
 
 # Core data loading functions

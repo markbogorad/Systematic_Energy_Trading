@@ -11,7 +11,7 @@ from streamlit_app.utilities.signals import get_signal, apply_strategy_returns, 
 from streamlit_app.utilities.data_loader import (
     load_filtered_commodities,
     get_filter_options,
-    ensure_database
+    ensure_database_by_tag
 )
 from streamlit_app.utilities.visualization import (
     plot_rolling_futures,
@@ -21,9 +21,6 @@ from streamlit_app.utilities.visualization import (
 from streamlit_app.utilities.rolling_futures import compute_rolling_futures
 from streamlit_app.utilities.metrics import compute_strategy_metrics
 
-# === DB SETUP ===
-DB_ID = "1moztw7N-byWmYd1nJGuOZnHYWEZuYjFB"
-DATA_PATH = ensure_database(file_path="/tmp/commodities.db", file_id=DB_ID)
 
 # === CACHING UTILITIES ===
 @st.cache_data
@@ -47,7 +44,6 @@ def get_cached_rolling(df, transaction_cost):
         price_col="px_last"
     )
 
-# (All your existing imports and setup remain unchanged...)
 
 # === PAGE SETUP ===
 st.set_page_config(page_title="Commodity Strategy Visualizer", layout="wide")
@@ -57,8 +53,12 @@ st.title("Commodity Strategy Visualizer")
 right_sidebar = st.sidebar.container()
 right_sidebar.header("Filter Futures")
 
-internal_tags, _ = get_cached_filter_options(DATA_PATH)
+internal_tags, _ = get_cached_filter_options("/tmp/placeholder.db")  # use dummy path for cache key
 internal_tags = sorted(internal_tags, key=lambda x: (x != "Catherine Rec", x))
+internal_tag = right_sidebar.selectbox("Internal Tag", internal_tags, key="internal_tag_select")
+
+# Dynamically load the right DB file based on selected tag
+DATA_PATH = ensure_database_by_tag(internal_tag)
 internal_tag = right_sidebar.selectbox("Internal Tag", internal_tags, key="internal_tag_select")
 
 commodity_dict = get_cached_commodities(DATA_PATH, internal_tag)
