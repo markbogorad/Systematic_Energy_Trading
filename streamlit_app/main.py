@@ -113,14 +113,20 @@ if df is not None and "Rolling Futures" in df.columns:
     st.subheader("Rolling Futures Time Series")
     st.plotly_chart(plot_rolling_futures(df), use_container_width=True)
 
-    if st.button("Show Futures Term Structure Over Time", key="futures_term_structure_button"):
+    if st.button("Show Futures Term Structure Over Time (may take a few minutes)", key="futures_term_structure_button"):
         with st.spinner("Generating GIF..."):
-            gif_path = generate_futures_gif(
-                df.pivot(index="date", columns="tenor", values="px_last").reset_index(),
-                sheet_name=raw_df['description'].iloc[0] if "description" in raw_df.columns else selected_ticker,
-                save_path="futures_curve.gif"
-            )
-            st.image(gif_path)
+
+            # Try to safely generate the GIF using our robust function
+            try:
+                gif_path = generate_futures_gif(
+                    df,
+                    sheet_name=raw_df['description'].iloc[0] if "description" in raw_df.columns else selected_ticker,
+                    save_path="futures_curve.gif"
+                )
+                st.image(gif_path)
+
+            except KeyError as e:
+                st.error(f"Could not generate term structure GIF: {e}")
 
 # === Strategy Controls ===
 left_sidebar.markdown("---")
