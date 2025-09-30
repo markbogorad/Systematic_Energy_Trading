@@ -10,19 +10,14 @@ def sign_signal(series, threshold=0.0):
 
 # MA
 def basic_momentum(df, price_col, window, threshold=0.0):
-    """
-    Signal:
-    +1 if (lagged price - MA) > threshold
-    -1 if (lagged price - MA) < -threshold
-     0 if in between
-    """
     lagged_price = df[price_col].shift(1)
-    ma = moving_average(lagged_price, window)
+    ma = lagged_price.rolling(window).mean()
     delta = lagged_price - ma
 
-    signal = (delta > threshold).astype(int) * 2 - 1
+    signal = np.where(delta > threshold, 1,
+                      np.where(delta < -threshold, -1, 0))
 
-    return signal
+    return pd.Series(signal, index=df.index, name="Signal")
 
 # Carry
 def carry(df, front_col, back_col, threshold=0.0):
@@ -143,12 +138,25 @@ def fade_crowded_trade(df, mm_col, epsilon, n):
     signal = SI.apply(fade_signal)
     return signal.shift(1)
 
-def apply_strategy_returns(df, signal, price_col="Rolling Futures"):
-    price = pd.to_numeric(df[price_col], errors="coerce")
-    returns = price.diff().fillna(0)
-    pnl = signal.shift(1) * returns  # shift signal to avoid lookahead
-    return pnl.cumsum()
+def apply_strategy_returns(df, signal, price_col="Rolling Futures", multiplier=1.0, cost_per_contract=0.01):
 
+    price = pd.to_numeric(df[price_col], errors="coerce")
+    returns = price.diff()
+
+    # Position held today is based on signal from yesterday
+    position = signal.shift(1).fillna(0)
+
+    # Daily P&L
+    gross_pnl = position * returns * multiplier
+
+    # Transaction cost only when position changes
+    tcost = np.where(position != position.shift(1), cost_per_contract * multiplier, 0)
+
+    # Net PnL after cost
+    net_pnl = gross_pnl - tcost
+    net_pnl = pd.Series(net_pnl, index=price.index).fillna(0)
+
+    return net_pnl.cumsum()
 
 # Dispatcher
 strategy_functions = {

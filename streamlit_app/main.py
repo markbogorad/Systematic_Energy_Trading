@@ -2,6 +2,7 @@ import os
 import sys
 import streamlit as st
 import pandas as pd
+import traceback
 
 # Set project root path for imports
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -13,8 +14,7 @@ from streamlit_app.utilities.signals import get_signal, apply_strategy_returns, 
 from streamlit_app.utilities.data_loader import (
     load_filtered_commodities,
     get_filter_options,
-    ensure_database_by_tag,
-    get_available_internal_tags
+    ensure_ngls_database,
 )
 from streamlit_app.utilities.visualization import (
     plot_rolling_futures,
@@ -36,8 +36,7 @@ def get_cached_commodities(data_path):
 @st.cache_data
 def get_cached_rolling(df, transaction_cost):
     return compute_rolling_futures(
-        df,
-        method="eom",
+        df_long=df,
         transaction_cost=transaction_cost,
         f1_col="F1",
         f2_col="F2",
@@ -47,25 +46,22 @@ def get_cached_rolling(df, transaction_cost):
     )
 
 # === PAGE SETUP ===
-st.set_page_config(page_title="Commodity Strategy Visualizer", layout="wide")
+st.set_page_config(page_title="Commodity Strategy Visualization", layout="wide")
 st.title("Commodity Strategy Visualizer")
 
 # === SIDEBAR FILTERS ===
 right_sidebar = st.sidebar.container()
 right_sidebar.header("Filter Futures")
 
-available_tags = sorted(get_available_internal_tags(), key=lambda x: (x != "Catherine Rec", x))
-internal_tag = right_sidebar.selectbox("Internal Tag", available_tags, key="internal_tag_select")
+# === Load unified database ===
+DATA_PATH = ensure_ngls_database()
 
-# Download and load tag-specific database
-DATA_PATH = ensure_database_by_tag(internal_tag)
-
-# Load filtered tickers for selected tag
+# Load filtered tickers
 commodity_dict = get_cached_commodities(DATA_PATH)
 raw_df_all = commodity_dict.get("futures", pd.DataFrame())
 
 if raw_df_all.empty or "bbg_ticker" not in raw_df_all.columns:
-    st.warning("No commodities found under this tag.")
+    st.warning("No commodities found.")
     st.stop()
 
 non_empty_tickers = (
@@ -74,19 +70,23 @@ non_empty_tickers = (
 )
 
 if non_empty_tickers.empty:
-    st.warning("No tickers with data found under this tag.")
+    st.warning("No tickers with data found.")
     st.stop()
 
 available = load_filtered_commodities(DATA_PATH, only_metadata=True)
 if available.empty:
-    st.warning("No available tickers under this tag.")
+    st.warning("No available tickers.")
     st.stop()
 
-available["display"] = available["bbg_ticker"] + " — " + available["description"].fillna("")
+available["display"] = available["bbg_ticker"] + " — " + available.get("name", available.get("description", ""))
 selected_display = right_sidebar.selectbox("Select BBG Ticker", available["display"])
 selected_ticker = selected_display.split(" — ")[0]
 
 commodity_dict = load_filtered_commodities(DATA_PATH, ticker_search=selected_ticker)
+if not isinstance(commodity_dict, dict):
+    st.error(f"No data found for ticker: {selected_ticker}")
+    st.stop()
+
 raw_df_all = commodity_dict.get("futures", pd.DataFrame())
 raw_df = raw_df_all[raw_df_all["bbg_ticker"] == selected_ticker].copy()
 
@@ -95,6 +95,12 @@ df_cols = set(col.lower() for col in raw_df.columns)
 if not required_cols.issubset(df_cols):
     st.error(f"The 'futures' table must contain: {', '.join(required_cols)}")
     st.write("Available columns:", raw_df.columns.tolist())
+    st.stop()
+
+# === Block if only one tenor ===
+unique_tenors = raw_df["tenor"].dropna().unique()
+if len(unique_tenors) < 2:
+    st.warning(f"Only one tenor ({unique_tenors[0]}) available. Rolling futures requires at least two tenors.")
     st.stop()
 
 # === LEFT SIDEBAR: STRATEGY INPUT ===
@@ -106,6 +112,7 @@ try:
     df = get_cached_rolling(raw_df, transaction_cost)
 except Exception as e:
     st.error(f"Rolling futures computation failed: {e}")
+    st.text(traceback.format_exc())
     df = None
 
 # === Plot Rolling Futures and Button ===
@@ -113,20 +120,22 @@ if df is not None and "Rolling Futures" in df.columns:
     st.subheader("Rolling Futures Time Series")
     st.plotly_chart(plot_rolling_futures(df), use_container_width=True)
 
+    with st.expander("🔍 Show Debug Table (F1/F2 roll validation)"):
+        debug_df = pd.DataFrame(df["_debug"].tolist())
+        st.dataframe(debug_df.tail(20), use_container_width=True)
+
     if st.button("Show Futures Term Structure Over Time (may take a few minutes)", key="futures_term_structure_button"):
         with st.spinner("Generating GIF..."):
-
-            # Try to safely generate the GIF using our robust function
             try:
                 gif_path = generate_futures_gif(
                     df,
-                    sheet_name=raw_df['description'].iloc[0] if "description" in raw_df.columns else selected_ticker,
+                    sheet_name=selected_display,
                     save_path="futures_curve.gif"
                 )
                 st.image(gif_path)
-
             except KeyError as e:
                 st.error(f"Could not generate term structure GIF: {e}")
+
 
 # === Strategy Controls ===
 left_sidebar.markdown("---")
