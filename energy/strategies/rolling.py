@@ -437,6 +437,15 @@ def roll_EL(
     for r in roll_days:
         df.iat[r, df.columns.get_loc("t_cost")] -= 2.0 * abs(t_cost)
 
+    # --- Trade count: 1 entry, 1 exit, 2 per roll ---
+    trade_count = np.zeros(n, dtype=float)
+    trade_count[0]  += 1.0        # entry
+    trade_count[-1] += 1.0        # exit
+    for r in roll_days:
+        trade_count[r] += 2.0     # sell old, buy new
+
+    df["trade_count"] = trade_count
+
     eq = np.zeros(n, dtype=float)
     seed_price = prices.at[idx[0], seed_contract]
     eq[0] = seed_price + df.iat[0, df.columns.get_loc("t_cost")]
