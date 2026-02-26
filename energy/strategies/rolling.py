@@ -47,7 +47,10 @@ def _post_expiry_flags(idx: pd.DatetimeIndex, next_exp_dates: pd.DatetimeIndex) 
     n = len(idx)
     out = np.zeros(n, dtype=int)
     for t in range(1, n):
-        if idx[t - 1] < next_exp_dates[t - 1] <= idx[t]:
+        exp_date = next_exp_dates[t - 1]
+        # flag when we *cross* the expiry date:
+        # idx[t-1] <= exp_date < idx[t]  → first bar strictly after expiry
+        if idx[t - 1] <= exp_date < idx[t]:
             out[t] = 1
     return out
 
@@ -62,7 +65,7 @@ def _expiry_today_flags(idx: pd.DatetimeIndex, next_exp_dates: pd.DatetimeIndex)
 
 
 # =============================================================================
-# 1) Synchronous T-N / window roll (this one was already correct)
+# 1) Synchronous T-N / window roll 
 # =============================================================================
 def rolling_pnl(
     prices: pd.DataFrame,
@@ -409,7 +412,8 @@ def roll_EL(
     rolled_df: pd.DataFrame,
     prices: pd.DataFrame,
     front_col: str = "F1",
-    t_cost: float = 0.01,
+    t_cost: float | None = 0.00,
+    pct_t_cost: float | None = None,
 ) -> pd.DataFrame:
     if "daily_pnl" not in rolled_df.columns or "roll_day_flag" not in rolled_df.columns:
         raise ValueError("rolled_df must include 'daily_pnl' and 'roll_day_flag'.")
@@ -426,18 +430,38 @@ def roll_EL(
     if seed_contract not in prices.columns:
         raise ValueError(f"Seed contract '{seed_contract}' not found in prices.")
 
+    # Price series used for percentage costs
+    price_series = prices[seed_contract].reindex(idx).astype(float)
+
     df["t_cost"] = 0.0
 
-    # entry / exit
-    df.iat[0, df.columns.get_loc("t_cost")] -= abs(t_cost)
-    df.iat[-1, df.columns.get_loc("t_cost")] -= abs(t_cost)
-
-    # roll costs
+    # Identify roll days (where we do 2 legs: sell old, buy new)
     roll_days = np.flatnonzero(df["roll_day_flag"].to_numpy() == 1)
-    for r in roll_days:
-        df.iat[r, df.columns.get_loc("t_cost")] -= 2.0 * abs(t_cost)
 
-    # --- Trade count: 1 entry, 1 exit, 2 per roll ---
+    # Decide which mode we're in
+    use_pct = pct_t_cost is not None and pct_t_cost != 0.0
+    use_abs = (not use_pct) and (t_cost is not None) and (t_cost != 0.0)
+
+
+    if use_pct:
+        # Entry cost (1 leg) on first day
+        df.iat[0, df.columns.get_loc("t_cost")] -= abs(pct_t_cost) * price_series.iloc[0]
+
+        # Exit cost (1 leg) on last day
+        df.iat[-1, df.columns.get_loc("t_cost")] -= abs(pct_t_cost) * price_series.iloc[-1]
+
+        # Roll costs: 2 legs per roll day
+        for r in roll_days:
+            df.iat[r, df.columns.get_loc("t_cost")] -= 2.0 * abs(pct_t_cost) * price_series.iloc[r]
+
+    elif use_abs:
+        # Old behaviour: fixed dollar cost per leg
+        df.iat[0, df.columns.get_loc("t_cost")] -= abs(t_cost)
+        df.iat[-1, df.columns.get_loc("t_cost")] -= abs(t_cost)
+
+        for r in roll_days:
+            df.iat[r, df.columns.get_loc("t_cost")] -= 2.0 * abs(t_cost)
+
     trade_count = np.zeros(n, dtype=float)
     trade_count[0]  += 1.0        # entry
     trade_count[-1] += 1.0        # exit
@@ -447,7 +471,9 @@ def roll_EL(
     df["trade_count"] = trade_count
 
     eq = np.zeros(n, dtype=float)
-    seed_price = prices.at[idx[0], seed_contract]
+
+    seed_price = price_series.iloc[0]
+    # start equity: seed price plus any initial cost
     eq[0] = seed_price + df.iat[0, df.columns.get_loc("t_cost")]
 
     for t in range(1, n):
@@ -525,13 +551,21 @@ class RollingStrategy:
     def equity(
         self,
         roll_window: int = 5,
-        t_cost: float = 0.01,
+        t_cost: float | None = 0.00,
+        pct_t_cost: float | None = None,
         *,
         style: str = "window",
         third_col: str = "F3",
         mid_col: str = "F3",
         far_col: str = "F4",
     ):
+        """
+        Build equity_line for the chosen roll style.
+
+        If pct_t_cost is provided, transaction costs are applied as a
+        percentage of price. Otherwise, we fall back to absolute t_cost.
+        """
+        # 1) Choose roll flavour
         if style == "window":
             self.pnl(roll_window=roll_window)
         elif style == "eom_mid":
@@ -545,11 +579,13 @@ class RollingStrategy:
         else:
             raise ValueError(f"Unknown style '{style}'.")
 
+        # 2) Apply transaction costs & build equity_line
         self._equity = roll_EL(
             self._rolled,
             self.prices,
             front_col=self.front_col,
             t_cost=t_cost,
+            pct_t_cost=pct_t_cost,
         )
         return self._equity
 

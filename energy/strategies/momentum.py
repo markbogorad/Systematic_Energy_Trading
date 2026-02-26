@@ -8,7 +8,7 @@ def price_momentum(
     front_col: str = "F1",
     short_ma: int = 1,
     long_ma: int = 20,
-    t_cost: float = 0.01,       # absolute cost in ORIGINAL quote units
+    t_cost: float = 0.00,       # absolute cost in ORIGINAL quote units
     pct_t_cost=None,            # if set, fraction of |daily_pnl| (e.g. 0.001 = 10 bps)
     epsilon: float = 0.0,
     ma_pairs=None,              # list of (short, long) pairs
@@ -144,33 +144,52 @@ def price_momentum(
     # ----------------------------
     norm_scale = prices.attrs.get("norm_scale", 1.0)
 
+    # price series for costing (same tenor as front_col)
+    px_for_cost = prices[front_col].reindex(pnl_df.index).astype(float)
+
     if pct_t_cost is not None and pct_t_cost > 0:
-        # percentage of underlying roll daily_pnl (per unit)
-        base_cost = pct_t_cost * pnl_df["daily_pnl"].abs()
-        pnl_df["sig_t_cost"] = pnl_df["total_cost_mult"] * base_cost
+        # proportional cost: fraction of price per "turn"
+        base_cost = pct_t_cost * px_for_cost.abs()
     else:
         # absolute cost in original units → scale into normalized space
-        abs_tc = t_cost * norm_scale
-        pnl_df["sig_t_cost"] = pnl_df["total_cost_mult"] * abs_tc
+        abs_tc   = t_cost * norm_scale
+        base_cost = pd.Series(abs_tc, index=pnl_df.index, dtype=float)
 
-    # combine strategy t_cost with underlying roll cost
-    pnl_df["t_cost"] = (
-        pnl_df["sig_t_cost"]
-        + rolled_df["t_cost"].reindex(pnl_df.index).fillna(0)
-    )
-    pnl_df.loc[pnl_df.index < start_date, "t_cost"] = 0
+    # signal-driven trading cost (0, 1, or 2 legs)
+    sig_cost = pnl_df["total_cost_mult"] * base_cost
 
-    # trade count = total number of turns that day (0, 1, or 2)
+    # roll cost from the underlying roll engine (negative in rolled_df)
+    roll_t_cost = rolled_df["t_cost"].reindex(pnl_df.index).fillna(0.0)
+    roll_cost   = -roll_t_cost   # make it positive cost
+
+    # total cost we want to subtract from mom_raw
+    total_cost = sig_cost + roll_cost
+
+    pnl_df["t_cost"] = total_cost  # this is now >= 0
+    pnl_df.loc[pnl_df.index < start_date, "t_cost"] = 0.0
+
+    # trade count = number of signal "turns" that day (0,1,2)
     pnl_df["trade_count"] = pnl_df["total_cost_mult"]
 
     # net PnL & equity
-    pnl_df["net_pnl"] = pnl_df["mom_raw"] - pnl_df["t_cost"]
+    pnl_df["net_pnl"]     = pnl_df["mom_raw"] - pnl_df["t_cost"]
     pnl_df["equity_line"] = pnl_df["net_pnl"].cumsum()
 
-    return pnl_df.rename(
-        columns={"mom_raw": "daily_pnl", "roll_day_flag": "roll_flag"}
-    )[["daily_pnl", "t_cost", "net_pnl", "roll_flag", "equity_line", "trade_count"]]
+    out = pnl_df.rename(
+    columns={"mom_raw": "daily_pnl", "roll_day_flag": "roll_flag"}
+    )
+    # make sure signal is float and included in the output
+    out["signal"] = out["signal"].astype(float)
 
+    return out[[
+        "daily_pnl",
+        "t_cost",
+        "net_pnl",
+        "roll_flag",
+        "equity_line",
+        "trade_count",
+        "signal",
+    ]]
 
 def momentum(
     prices: pd.DataFrame,
@@ -178,7 +197,7 @@ def momentum(
     front_col: str = "F1",
     short_ma: int = 1,
     long_ma: int = 20,
-    t_cost: float = 0.01,
+    t_cost: float = 0.00,
     pct_t_cost=None,
     epsilon: float = 0.0,
     ma_pairs=None,
